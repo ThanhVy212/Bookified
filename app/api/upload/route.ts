@@ -3,6 +3,8 @@ import {handleUpload, HandleUploadBody} from "@vercel/blob/client";
 import {auth} from "@clerk/nextjs/server";
 import {MAX_FILE_SIZE} from "@/lib/constants";
 
+class UnauthorizedUploadError extends Error {}
+
 export async function POST(req: Request):Promise<NextResponse> {
     const body = (await req.json()) as HandleUploadBody;
 
@@ -15,7 +17,7 @@ export async function POST(req: Request):Promise<NextResponse> {
                 const {userId} = await auth();
 
                 if(!userId){
-                    throw new Error('Unauthorized: User not authenticated');
+                    throw new UnauthorizedUploadError('Unauthorized: User not authenticated');
                 }
 
                 return {
@@ -37,8 +39,10 @@ export async function POST(req: Request):Promise<NextResponse> {
 
         return NextResponse.json(jsonResponse);
     } catch (e) {
-        const message = e instanceof Error ? e.message : "An unknow error occurred";
-        const status = message.includes('Unauthorized') ? 401 : 500;
-        return NextResponse.json({ error: message }, { status });
+        if (e instanceof UnauthorizedUploadError) {
+            return NextResponse.json({ error: e.message }, { status: 401 });
+        }
+        const message = e instanceof Error ? e.message : "An unknown error occurred";
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

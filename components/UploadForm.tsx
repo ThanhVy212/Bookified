@@ -21,7 +21,8 @@ import { BookUploadFormValues } from "@/types"
 import { toast } from "sonner"
 import {useUser} from "@clerk/nextjs";
 import {useRouter} from "next/navigation";
-import {checkBookExists, createBook, saveBookSegments} from "@/lib/actions/book.actions";
+import {checkBookExists, createBook, deleteBookById, saveBookSegments} from "@/lib/actions/book.actions";
+import {deleteUploadedBlobs} from "@/lib/actions/blob.actions";
 import {parsePDFFile} from "@/lib/utils";
 import {upload} from "@vercel/blob/client";
 
@@ -52,12 +53,22 @@ const UploadForm = () => {
     try {
       const existsCheck = await checkBookExists(data.title);
 
-      if (existsCheck.exists && existsCheck.book) {
+      if (existsCheck.exists && existsCheck.book?.clerkId !== user.id) {
+        toast.error("A book with this title already exists.");
+        return;
+      }
+
+      if (existsCheck.exists && existsCheck.isComplete && existsCheck.book) {
         toast.info("Book with same title already exists!");
         form.reset();
         router.push(`/books/${existsCheck.book.slug}`);
         return;
       }
+
+      const orphanBook =
+        existsCheck.exists && existsCheck.book && !existsCheck.isComplete
+          ? existsCheck.book
+          : null;
 
       const fileTitle = data.title.replace(/\s+/g, "-").toLowerCase();
       const pdfFile = data.pdfFile;
@@ -69,67 +80,111 @@ const UploadForm = () => {
         return;
       }
 
-      const uploadedPdfBlob = await upload(fileTitle, pdfFile, {
-        access: "public",
-        handleUploadUrl: "/api/upload",
-        contentType: "application/pdf",
-      });
+      const uploadedBlobUrls: string[] = [];
+      let createdBookId: string | undefined;
+      let bookSlug: string | undefined;
 
-      let coverUrl: string;
+      try {
+        let bookId: string;
 
-      if(data.coverImage) {
-        const coverFile = data.coverImage;
-        const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, coverFile, {
-          access: "public",
-          handleUploadUrl: "/api/upload",
-          contentType: coverFile.type,
-        });
-        coverUrl = uploadedCoverBlob.url;
-      } else {
-        const response = await fetch(parsedPDF.cover);
-        const blob = await response.blob();
+        if (orphanBook) {
+          uploadedBlobUrls.push(
+            ...[orphanBook.fileURL, orphanBook.coverURL].filter(Boolean),
+          );
+          createdBookId = orphanBook._id;
+          bookId = orphanBook._id;
+          bookSlug = orphanBook.slug;
+        } else {
+          const uploadedPdfBlob = await upload(fileTitle, pdfFile, {
+            access: "public",
+            handleUploadUrl: "/api/upload",
+            contentType: "application/pdf",
+          });
+          uploadedBlobUrls.push(uploadedPdfBlob.url);
 
-        const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, blob, {
-          access: "public",
-          handleUploadUrl: "/api/upload",
-          contentType: "image/png",
-        })
+          let coverUrl: string;
 
-        coverUrl = uploadedCoverBlob.url;
-      }
+          if (data.coverImage) {
+            const coverFile = data.coverImage;
+            const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, coverFile, {
+              access: "public",
+              handleUploadUrl: "/api/upload",
+              contentType: coverFile.type,
+            });
+            coverUrl = uploadedCoverBlob.url;
+          } else {
+            const response = await fetch(parsedPDF.cover);
+            const blob = await response.blob();
 
-      const book = await createBook({
-        clerkId: user?.id,
-        title: data.title,
-        author: data.author,
-        persona: data.persona,
-        fileURL: uploadedPdfBlob.url,
-        fileBlobKey: uploadedPdfBlob.pathname,
-        coverURL: coverUrl,
-        fileSize: pdfFile.size,
-      })
+            const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, blob, {
+              access: "public",
+              handleUploadUrl: "/api/upload",
+              contentType: "image/png",
+            });
 
-      if(!book.success) throw new Error("Failed to create book.");
+            coverUrl = uploadedCoverBlob.url;
+          }
+          uploadedBlobUrls.push(coverUrl);
 
-      if (book.alreadyExists) {
-        toast.info("Book with same title already exists!");
+          const book = await createBook({
+            clerkId: user.id,
+            title: data.title,
+            author: data.author,
+            persona: data.persona,
+            fileURL: uploadedPdfBlob.url,
+            fileBlobKey: uploadedPdfBlob.pathname,
+            coverURL: coverUrl,
+            fileSize: pdfFile.size,
+          });
+
+          if (!book.success) throw new Error("Failed to create book.");
+
+          if (book.alreadyExists) {
+            await deleteUploadedBlobs(uploadedBlobUrls);
+            if (book.isComplete) {
+              toast.info("Book with same title already exists!");
+              form.reset();
+              router.push(`/books/${book.data.slug}`);
+              return;
+            }
+            toast.error("A book with this title already exists.");
+            return;
+          }
+
+          createdBookId = book.data._id;
+          bookId = book.data._id;
+          bookSlug = book.data.slug;
+        }
+
+        const segments = await saveBookSegments(
+          bookId,
+          user.id,
+          parsedPDF.content,
+          uploadedBlobUrls,
+        );
+
+        if (!segments.success) {
+          createdBookId = undefined;
+          uploadedBlobUrls.length = 0;
+          throw new Error("Failed to save book segments.");
+        }
+
+        createdBookId = undefined;
+        uploadedBlobUrls.length = 0;
         form.reset();
-        router.push(`/books/${book.data.slug}`);
-        return;
+        router.push(`/books/${bookSlug}`);
+      } catch (uploadError) {
+        if (createdBookId) {
+          await deleteBookById(createdBookId);
+        }
+        if (uploadedBlobUrls.length > 0) {
+          await deleteUploadedBlobs(uploadedBlobUrls);
+        }
+        throw uploadError;
       }
-
-      const segments = await saveBookSegments(book.data._id, user?.id, parsedPDF.content);
-
-      if(!segments.success){
-        toast.error("Failed to save book segments.");
-        throw new Error("Failed to save book segments.");
-      }
-
-      form.reset();
-      router.push(`/books/${book.data.slug}`);
     } catch (error) {
-      console.error(error);
-      console.error("Book upload failed:", error)
+      console.error("Book upload failed:", error);
+      toast.error("Failed to upload book. Please try again.");
     } finally {
       setIsSubmitting(false)
     }

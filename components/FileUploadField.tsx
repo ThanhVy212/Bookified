@@ -10,7 +10,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { cn } from "@/lib/utils"
-import { FileUploadFieldProps } from "@/type"
+import { FileUploadFieldProps } from "@/types"
 
 import { FieldValues } from "react-hook-form"
 

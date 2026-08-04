@@ -256,6 +256,13 @@ export const useVapi = (book: IBook) => {
             });
         } catch (e) {
             console.error('Error starting call', e);
+            const sessionId = sessionIdRef.current;
+            sessionIdRef.current = null;
+            if (sessionId) {
+                void endVoiceSession(sessionId, durationRef.current).catch((err) =>
+                    console.error('Failed to end voice session after startup failure:', err)
+                );
+            }
             setStatus('idle');
             setLimitError("An error occurred while trying to start a conversation");
         }

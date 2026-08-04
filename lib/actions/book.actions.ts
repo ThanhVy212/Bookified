@@ -7,6 +7,7 @@ import Book from "@/database/models/book.model";
 import BookSegment from "@/database/models/book-segment.model";
 import { deleteUploadedBlobs } from "@/lib/actions/blob.actions";
 import mongoose from "mongoose";
+import {useAuth} from "@clerk/nextjs";
 
 export const getAllBooks = async () => {
     try {
@@ -22,7 +23,7 @@ export const getAllBooks = async () => {
         console.error("Error getting all books." ,e);
         return {
             success: false,
-            error: e
+            error: "Error getting all books."
         }
     }
 }
@@ -44,7 +45,7 @@ export const getBookBySlug = async (slug: string) => {
     } catch (e) {
         console.error('Error fetching book by slug', e);
         return {
-            success: false, error: e
+            success: false, error: 'Error fetching book by slug'
         }
     }
 }
@@ -54,6 +55,7 @@ export const checkBookExists = async (title: string) => {
         await connectToDatabase();
 
         const slug = generateSlug(title);
+        const userId = useAuth();
 
         const existingBook = await Book.findOne({ slug }).lean();
 
@@ -61,16 +63,18 @@ export const checkBookExists = async (title: string) => {
             return { exists: false };
         }
 
+        const isOwner = existingBook.clerkId === userId;
         return {
             exists: true,
-            book: serializeData(existingBook),
+            isOwner,
+            book: isOwner ? serializeData(existingBook) : null,
             isComplete: existingBook.totalSegments > 0,
         };
     } catch (e) {
         console.error('Error in checkBookExists', e);
         return {
             exists: false,
-            error: e,
+            error: 'Error in checkBookExists',
         }
     }
 }
@@ -95,15 +99,19 @@ export const createBook = async (data: CreateBook) => {
 
             if (existingBook.clerkId === data.clerkId) {
                 const staleBlobUrls = [existingBook.fileURL, existingBook.coverURL].filter(Boolean);
-                if (staleBlobUrls.length > 0) {
-                    await deleteUploadedBlobs(staleBlobUrls);
-                }
 
                 const updatedBook = await Book.findByIdAndUpdate(
                     existingBook._id,
                     { ...data, slug },
                     { new: true },
                 );
+
+                const obsoleteUrls = staleBlobUrls.filter(
+                    (url) => url !== data.fileURL && url !== data.coverURL,
+                );
+                if (obsoleteUrls.length > 0) {
+                    await deleteUploadedBlobs(obsoleteUrls);
+                }
 
                 return {
                     success: true,
@@ -132,7 +140,7 @@ export const createBook = async (data: CreateBook) => {
 
         return {
             success: false,
-            error: e,
+            error: 'Error creating Book',
         }
     }
 }
@@ -149,7 +157,7 @@ export const deleteBookById = async (bookId: string) => {
         console.error('Error deleting book', e);
         return {
             success: false,
-            error: e,
+            error: 'Error deleting book',
         };
     }
 };
@@ -197,10 +205,10 @@ export const saveBookSegments = async (
         await BookSegment.deleteMany({ bookId });
         await Book.findByIdAndDelete(bookId);
         await deleteUploadedBlobs(blobUrls);
-        console.log('Deleted book segments, book, and uploaded blobs due to failure to save segments.')
+        console.error('Deleted book segments, book, and uploaded blobs due to failure to save segments.', e)
         return {
             success: false,
-            error: e,
+            error: 'Deleted book segments, book, and uploaded blobs due to failure to save segments.',
         }
     }
 }
@@ -233,6 +241,11 @@ export const searchBookSegments = async (bookId: string, query: string, limit: n
         // Fallback: regex search matching ANY keyword
         if (segments.length === 0) {
             const keywords = query.split(/\s+/).filter((k) => k.length > 2);
+
+            if (keywords.length === 0) {
+               return { success: true, data: [] };
+            }
+
             const pattern = keywords.map(escapeRegex).join('|');
 
             segments = await BookSegment.find({

@@ -8,6 +8,7 @@ import BookSegment from "@/database/models/book-segment.model";
 import { deleteUploadedBlobs } from "@/lib/actions/blob.actions";
 import mongoose from "mongoose";
 import {useAuth} from "@clerk/nextjs";
+import {revalidatePath} from "next/cache";
 
 export const getAllBooks = async () => {
     try {
@@ -130,6 +131,8 @@ export const createBook = async (data: CreateBook) => {
         // Todo: check subscription limits before creating a book
 
         const book = await Book.create({...data, slug, totalSegments: 0});
+
+        revalidatePath('/');
 
         return {
             success: true,

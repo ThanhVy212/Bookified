@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/form"
 import { cn } from "@/lib/utils"
 import { voiceCategories, voiceOptions } from "@/lib/constants"
-import { BookUploadFormValues } from "@/type"
+import { BookUploadFormValues } from "@/types"
 import { Control } from "react-hook-form"
 
 interface VoiceSelectorFieldProps {

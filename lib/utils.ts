@@ -158,3 +158,10 @@ export async function parsePDFFile(file: File) {
         throw new Error(`Failed to parse PDF file: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
+
+export const getVoiceName = (voiceId: string) => {
+    const voice =
+        Object.values(voiceOptions).find((voice) => voice.id === voiceId) ??
+        voiceOptions[voiceId as keyof typeof voiceOptions];
+    return voice?.name ?? "Unknown";
+};

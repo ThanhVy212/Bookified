@@ -15,6 +15,7 @@ import {
 const navItems = [
     {label: "Library", link: "/" },
     {label: "Add New", link: "/books/new" },
+    { label: "Pricing", link: "/subscriptions" },
 ]
 
 const Navbar = () => {

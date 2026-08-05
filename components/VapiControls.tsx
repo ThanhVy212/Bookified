@@ -7,12 +7,24 @@ import Transcript from "@/components/Transcript";
 import useVapi from "@/hooks/useVapi";
 import {useRouter} from "next/navigation";
 import {useEffect} from "react";
+import {toast} from "sonner";
+import {getVoiceName} from "@/lib/utils";
 
 
 
 const VapiControls = ({book} : { book: IBook }) => {
-    const {status, isActive, messages, currentMessage, currentUserMessage, duration, start, stop, clearError} = useVapi(book);
+    const {status, isActive, messages, currentMessage, currentUserMessage, duration, start, stop, clearError,  limitError, isBillingError, maxDurationSeconds} = useVapi(book);
     const router = useRouter();
+
+    useEffect(() => {
+        if (limitError) {
+            toast.error(limitError);
+            if (isBillingError) {
+                router.push("/subscriptions");
+            }
+            clearError();
+        }
+    }, [isBillingError, limitError, router, clearError]);
 
     const formatDuration = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -58,7 +70,7 @@ const VapiControls = ({book} : { book: IBook }) => {
                                 className={`vapi-mic-btn shadow-md !w-[60px] !h-[60px] z-10 ${isActive ? 'vapi-mic-btn-active' : 'vapi-mic-btn-inactive'}`}
                             >
                                 {isActive ? (
-                                    <Mic className="size-7 text-white" />
+                                    <Mic className="size-7 text-[#212a3b]" />
                                 ) : (
                                     <MicOff className="size-7 text-[#212a3b]" />
                                 )}
@@ -82,12 +94,14 @@ const VapiControls = ({book} : { book: IBook }) => {
                             </div>
 
                             <div className="vapi-status-indicator">
-                                <span className="vapi-status-text">Voice: {book.persona || "Daniel"}</span>
+                                {book.persona && (
+                                    <span className="vapi-status-text">Voice: {getVoiceName(book.persona)}</span>
+                                )}
                             </div>
 
                             <div className="vapi-status-indicator">
                                 <span className="vapi-status-text">
-                                    {formatDuration(duration)}/{formatDuration(duration)}
+                                    {formatDuration(duration)}/{formatDuration(maxDurationSeconds)}
                                 </span>
                             </div>
                         </div>

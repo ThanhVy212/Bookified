@@ -137,7 +137,13 @@ const UploadForm = () => {
             fileSize: pdfFile.size,
           });
 
-          if (!book.success) throw new Error("Failed to create book.");
+          if (!book.success) {
+            toast.error(book.error as string || "Failed to create book");
+            if (book.isBillingError) {
+              router.push("/subscriptions");
+            }
+            return;
+          };
 
           if (book.alreadyExists) {
             await deleteUploadedBlobs(uploadedBlobUrls);

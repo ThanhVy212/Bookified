@@ -36,7 +36,7 @@ export const startVoiceSession = async (clerkId: string, bookId: string): Promis
             clerkId,
             bookId,
             startedAt: new Date(),
-            billingPeriodStart: getCurrentBillingPeriodStart(),
+            billingPeriodStart,
             durationSeconds: 0,
         })
 

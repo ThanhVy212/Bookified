@@ -81,6 +81,7 @@ export function useVapi(book: IBook) {
                         // Check duration limit
                         if (newDuration >= maxDurationRef.current) {
                             getVapi().stop();
+                            setIsBillingError(true);
                             setLimitError(
                                 `Session time limit (${Math.floor(
                                     maxDurationRef.current / SECONDS_PER_MINUTE,
@@ -270,6 +271,13 @@ export function useVapi(book: IBook) {
                 },
             });
         } catch (err) {
+            const sessionId = sessionIdRef.current;
+            sessionIdRef.current = null;
+            if (sessionId) {
+                endVoiceSession(sessionId, 0).catch((cleanupError) =>
+                    console.error('Failed to close abandoned voice session:', cleanupError)
+                );
+            }
             console.error('Failed to start call:', err);
             setStatus('idle');
             setLimitError('Failed to start voice session. Please try again.');
